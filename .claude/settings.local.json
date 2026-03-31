@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /Users/admin/Documents/Antigravity/FundingRate -name ручная* -o -name *resolved -type f)",
+      "Bash(chmod +x /Users/admin/Documents/Antigravity/FundingRate/deploy/setup.sh)",
+      "WebSearch",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(ls /Users/admin/Documents/Antigravity/FundingRate/venv/bin/python*)"
+    ]
+  }
+}

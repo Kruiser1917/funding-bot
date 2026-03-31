@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OKX Funding Rate Bot | Monitor</title>
+    <!-- Улучшенный Google Fonts: Inter и JetBrains Mono для цифр -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap"
+        rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            /* Цветовая палитра: глубокий темный космос */
+            --bg-body: #0a0e17;
+            --bg-panel: #141b2d;
+            --bg-panel-hover: #1b243b;
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --accent-primary: #3b82f6;
+            --accent-success: #10b981;
+            --accent-danger: #ef4444;
+            --accent-warn: #f59e0b;
+            --border-color: #1e293b;
+
+            /* Glassmorphism */
+            --glass-bg: rgba(20, 27, 45, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.05);
+            --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+
+            /* Анимации */
+            --transition-speed: 0.3s;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            line-height: 1.6;
+            padding: 2rem;
+
+            /* Тонкий градиент на фоне */
+            background-image: radial-gradient(circle at top right, rgba(59, 130, 246, 0.1) 0%, transparent 40%),
+                radial-gradient(circle at bottom left, rgba(16, 185, 129, 0.05) 0%, transparent 40%);
+            background-attachment: fixed;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        /* ── Header ── */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        header h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #fff 0%, #cbd5e1 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .update-time {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .pulse {
+            width: 8px;
+            height: 8px;
+            background-color: var(--accent-success);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--accent-success);
+            animation: pulsate 2s infinite;
+        }
+
+        @keyframes pulsate {
+            0% {
+                transform: scale(0.95);
+                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+            }
+
+            70% {
+                transform: scale(1);
+                box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+            }
+
+            100% {
+                transform: scale(0.95);
+                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+            }
+        }
+
+        /* ── Grid Layout ── */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        /* ── Cards ── */
+        .card {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 1.5rem;
+            box-shadow: var(--glass-shadow);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            transition: transform var(--transition-speed) ease,
+                box-shadow var(--transition-speed) ease,
+                background-color var(--transition-speed) ease;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.4);
+            background: var(--bg-panel-hover);
+        }
+
+        .card-title {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .card-value {
+            font-size: 2rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            background: linear-gradient(135deg, #fff 0%, #e2e8f0 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .card-subtitle {
+            font-size: 0.85rem;
+            margin-top: 0.5rem;
+            color: var(--text-muted);
+        }
+
+        .text-success {
+            color: var(--accent-success);
+            text-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
+        }
+
+        .text-danger {
+            color: var(--accent-danger);
+            text-shadow: 0 0 10px rgba(239, 68, 68, 0.3);
+        }
+
+        .text-warn {
+            color: var(--accent-warn);
+            text-shadow: 0 0 10px rgba(245, 158, 11, 0.3);
+        }
+
+        /* Исключения для градиента текста (если цветной класс) */
+        .card-value.text-success,
+        .card-value.text-danger {
+            -webkit-text-fill-color: currentcolor;
+            background: none;
+        }
+
+        /* ── Tables Section ── */
+        .sections-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 1.5rem;
+        }
+
+        .section-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            border-radius: 8px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            text-align: left;
+        }
+
+        th,
+        td {
+            padding: 1rem 1.2rem;
+            border-bottom: 1px solid var(--border-color);
+            white-space: nowrap;
+        }
+
+        th {
+            background: rgba(0, 0, 0, 0.2);
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        tbody tr {
+            transition: background-color var(--transition-speed) ease;
+        }
+
+        tbody tr:hover {
+            background-color: rgba(255, 255, 255, 0.03);
+        }
+
+        td {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.95rem;
+        }
+
+        /* Выделение символа монеты */
+        td.symbol-cell {
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .badge {
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .badge-enter {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-success);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .badge-watch {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--accent-warn);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+
+        .badge-skip {
+            background: rgba(148, 163, 184, 0.1);
+            color: var(--text-muted);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+        }
+
+        /* ── Chart Container ── */
+        .chart-container {
+            position: relative;
+            height: 350px;
+            width: 100%;
+            margin-top: 1rem;
+        }
+
+        .chart-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        select {
+            background: var(--bg-panel);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.9rem;
+            outline: none;
+            cursor: pointer;
+            transition: border-color var(--transition-speed);
+        }
+
+        select:hover,
+        select:focus {
+            border-color: var(--accent-primary);
+        }
+
+        /* ── Responsive ── */
+        @media (max-width: 1200px) {
+            .sections-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 1024px) {
+            .grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 600px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            body {
+                padding: 1rem;
+            }
+
+            th,
+            td {
+                padding: 0.8rem;
+            }
+        }
+
+        /* Скелетон загрузки */
+        .skeleton {
+            animation: skeleton-loading 1.5s infinite linear;
+            background: linear-gradient(90deg, var(--bg-panel) 25%, #1e2638 50%, var(--bg-panel) 75%);
+            background-size: 200% 100%;
+            border-radius: 4px;
+            color: transparent !important;
+        }
+
+        @keyframes skeleton-loading {
+            0% {
+                background-position: 200% 0;
+            }
+
+            100% {
+                background-position: -200% 0;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <header>
+            <h1>OKX Funding Arbitrage</h1>
+            <div class="update-time">
+                <div class="pulse"></div>
+                Last Update: <span id="last-update">...</span>
+            </div>
+        </header>
+
+        <div class="grid">
+            <div class="card">
+                <div class="card-title">Portfolio Value</div>
+                <div class="card-value" id="portfolio-value">$0.00</div>
+                <div class="card-subtitle">Capital: <span id="capital">$0.00</span></div>
+            </div>
+            <div class="card">
+                <div class="card-title">ROI</div>
+                <div class="card-value" id="roi-pct">0.00%</div>
+                <div class="card-subtitle">PnL: <span id="total-pnl">$0.00</span></div>
+            </div>
+            <div class="card">
+                <div class="card-title">Funding Earned</div>
+                <div class="card-value text-success" id="funding-earned">$0.00</div>
+                <div class="card-subtitle">Commissions: <span class="text-danger" id="commissions">$0.00</span></div>
+            </div>
+            <div class="card">
+                <div class="card-title">Active Positions</div>
+                <div class="card-value" id="positions-count">0</div>
+                <div class="card-subtitle">Free Balance: <span id="free-balance">$0.00</span></div>
+            </div>
+        </div>
+
+        <div class="sections-grid">
+            <!-- Левая колонка -->
+            <div>
+                <!-- График -->
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="section-title">
+                        <span>Rate History Analysis</span>
+                        <div class="chart-header">
+                            <select id="chart-symbol-select" onchange="updateChart()">
+                                <option value="">Loading...</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="rateChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Equity Curve -->
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="section-title">Portfolio Equity Curve</div>
+                    <div class="chart-container">
+                        <canvas id="equityChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Открытые позиции -->
+                <div class="card">
+                    <div class="section-title">Open Positions</div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Size</th>
+                                    <th>Entry Price</th>
+                                    <th>Unrealized</th>
+                                    <th>Earned</th>
+                                    <th>Periods</th>
+                                </tr>
+                            </thead>
+                            <tbody id="positions-body">
+                                <tr>
+                                    <td colspan="6" style="text-align:center;" class="skeleton">Loading data...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Правая колонка -->
+            <div>
+                <!-- Market Scanner -->
+                <div class="card">
+                    <div class="section-title">Market Scanner (Live Rates)</div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Rate %</th>
+                                    <th>Annual %</th>
+                                    <th>Signal</th>
+                                </tr>
+                            </thead>
+                            <tbody id="rates-body">
+                                <tr>
+                                    <td colspan="4" style="text-align:center;" class="skeleton">Loading market data...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Инициализация Chart.js
+        let rateChart = null;
+        let equityChart = null;
+
+        function initChart() {
+            const ctx = document.getElementById('rateChart').getContext('2d');
+
+            // Настройка глобальных шрифтов Chart.js
+            Chart.defaults.color = '#94a3b8';
+            Chart.defaults.font.family = "'Inter', sans-serif";
+
+            rateChart = new Chart(ctx, {
+                type: 'line',
+                data: { labels: [], datasets: [] },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(20, 27, 45, 0.9)',
+                            titleFont: { size: 13, family: "'Inter', sans-serif" },
+                            bodyFont: { size: 14, family: "'JetBrains Mono', monospace", weight: 'bold' },
+                            padding: 12,
+                            borderColor: 'rgba(255, 255, 255, 0.1)',
+                            borderWidth: 1,
+                            displayColors: false,
+                            callbacks: {
+                                label: function (context) {
+                                    return context.parsed.y.toFixed(4) + '%';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false },
+                            ticks: { maxTicksLimit: 8 }
+                        },
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false },
+                            ticks: {
+                                callback: function (value) { return value.toFixed(4) + '%'; }
+                            }
+                        }
+                    },
+                    elements: {
+                        line: { tension: 0.4 }, // Плавные кривые
+                        point: { radius: 0, hitRadius: 10, hoverRadius: 5 }
+                    }
+                }
+            });
+
+            // Инициализация Equity Chart
+            const eqCtx = document.getElementById('equityChart').getContext('2d');
+            equityChart = new Chart(eqCtx, {
+                type: 'line',
+                data: { labels: [], datasets: [] },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(20, 27, 45, 0.9)',
+                            titleFont: { size: 13, family: "'Inter', sans-serif" },
+                            bodyFont: { size: 14, family: "'JetBrains Mono', monospace", weight: 'bold' },
+                            padding: 12,
+                            borderColor: 'rgba(255, 255, 255, 0.1)',
+                            borderWidth: 1,
+                            displayColors: false,
+                            callbacks: {
+                                label: function (context) {
+                                    return '$' + context.parsed.y.toFixed(2);
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false }, ticks: { maxTicksLimit: 8 } },
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false },
+                            ticks: {
+                                callback: function (value) { return '$' + value; }
+                            }
+                        }
+                    },
+                    elements: {
+                        line: { tension: 0.2 },
+                        point: { radius: 0, hitRadius: 10, hoverRadius: 5 }
+                    }
+                }
+            });
+        }
+
+        // Форматирование валюты
+        const formatUsd = (val) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+        const formatNum = (val, dec) => parseFloat(val).toFixed(dec);
+
+        // Загрузка статуса порфтеля
+        async function fetchStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+
+                const s = data.summary;
+                document.getElementById('portfolio-value').textContent = formatUsd(s.portfolio_value);
+                document.getElementById('capital').textContent = formatUsd(s.capital);
+
+                const roiEl = document.getElementById('roi-pct');
+                const roi = parseFloat(s.roi_pct);
+                roiEl.textContent = (roi > 0 ? '+' : '') + roi.toFixed(4) + '%';
+                roiEl.className = 'card-value ' + (roi >= 0 ? 'text-success' : 'text-danger');
+
+                document.getElementById('total-pnl').textContent = (s.total_pnl >= 0 ? '+' : '') + formatUsd(s.total_pnl);
+                document.getElementById('total-pnl').className = s.total_pnl >= 0 ? 'text-success' : 'text-danger';
+
+                document.getElementById('funding-earned').textContent = formatUsd(s.total_funding_earned);
+                document.getElementById('commissions').textContent = formatUsd(s.total_commissions);
+
+                document.getElementById('positions-count').textContent = s.open_positions_count;
+                document.getElementById('free-balance').textContent = formatUsd(s.free_balance);
+
+                // Таблица позиций
+                const tbody = document.getElementById('positions-body');
+                tbody.innerHTML = '';
+
+                if (data.positions.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No open positions</td></tr>';
+                } else {
+                    data.positions.forEach(p => {
+                        const unrl = parseFloat(p.unrealized_funding);
+                        const unrlClass = unrl > 0 ? 'text-success' : (unrl < 0 ? 'text-danger' : '');
+
+                        tbody.innerHTML += `
+                        <tr>
+                            <td class="symbol-cell">${p.symbol}</td>
+                            <td>${formatUsd(p.size_usd)}</td>
+                            <td>$${formatNum(p.entry_price, 4)}</td>
+                            <td class="${unrlClass}">${unrl > 0 ? '+' : ''}${formatUsd(unrl)} <span style="font-size:0.8rem;color:var(--text-muted)">(${formatNum(p.current_rate_pct, 4)}%)</span></td>
+                            <td>${formatUsd(p.funding_earned)}</td>
+                            <td>${p.funding_count}</td>
+                        </tr>
+                    `;
+                    });
+                }
+            } catch (e) {
+                console.error('Status fetch error:', e);
+            }
+        }
+
+        // Загрузка Market Scanner
+        async function fetchRates() {
+            try {
+                const res = await fetch('/api/rates');
+                const rates = await res.json();
+
+                const tbody = document.getElementById('rates-body');
+                tbody.innerHTML = '';
+
+                const select = document.getElementById('chart-symbol-select');
+                const currentSelected = select.value;
+                let optionsHtml = '';
+
+                rates.forEach(r => {
+                    let badgeCls = 'badge-skip';
+                    let signalTxt = 'SKIP';
+
+                    if (r.signal.includes('ENTER')) { badgeCls = 'badge-enter'; signalTxt = 'ENTER 🔥'; }
+                    else if (r.signal.includes('WATCH')) { badgeCls = 'badge-watch'; signalTxt = 'WATCH 👀'; }
+
+                    const rateVal = parseFloat(r.rate_pct);
+                    const rateCls = rateVal > 0 ? 'text-success' : (rateVal < 0 ? 'text-danger' : '');
+
+                    tbody.innerHTML += `
+                    <tr>
+                        <td class="symbol-cell">${r.symbol}</td>
+                        <td class="${rateCls}">${formatNum(r.rate_pct, 4)}%</td>
+                        <td>${formatNum(r.annual_pct, 1)}%</td>
+                        <td><span class="badge ${badgeCls}">${signalTxt}</span></td>
+                    </tr>
+                `;
+
+                    optionsHtml += `<option value="${r.symbol}" ${r.symbol === currentSelected ? 'selected' : ''}>${r.symbol} (${formatNum(r.annual_pct, 1)}%)</option>`;
+                });
+
+                // Обновляем селект только если ещё не загружен или изменился список
+                if (select.options.length <= 1 || select.options[0].value === "") {
+                    select.innerHTML = optionsHtml;
+                    if (!currentSelected) updateChart(); // Загружаем первый график
+                }
+
+            } catch (e) {
+                console.error('Rates fetch error:', e);
+            }
+        }
+
+        // Обновление графика
+        async function updateChart() {
+            const symbol = document.getElementById('chart-symbol-select').value;
+            if (!symbol) return;
+
+            try {
+                const res = await fetch(`/api/history/${symbol}`);
+                const data = await res.json();
+
+                if (data.labels && data.data) {
+                    // Градиент для линии
+                    const ctx = document.getElementById('rateChart').getContext('2d');
+                    const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+                    gradient.addColorStop(0, 'rgba(59, 130, 246, 0.5)'); // Синий
+                    gradient.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
+
+                    rateChart.data.labels = data.labels;
+                    rateChart.data.datasets = [{
+                        label: 'Funding Rate %',
+                        data: data.data,
+                        borderColor: '#3b82f6', // Синий
+                        backgroundColor: gradient,
+                        borderWidth: 2,
+                        fill: true,
+                        // Изменение цвета линии если уходит ниже нуля
+                        segment: {
+                            borderColor: ctx => ctx.p0.parsed.y < 0 ? '#ef4444' : '#3b82f6',
+                        }
+                    }];
+                    // Добавляем нулевую линию
+                    if (!rateChart.options.plugins.annotation) rateChart.options.plugins.annotation = { annotations: {} };
+
+                    rateChart.update();
+                }
+            } catch (e) {
+                console.error('Chart error:', e);
+            }
+        }
+
+        // Обновление Equity Curve
+        async function updateEquityChart() {
+            try {
+                const res = await fetch('/api/equity');
+                const data = await res.json();
+
+                if (data.labels && data.data && data.data.length > 0) {
+                    const ctx = document.getElementById('equityChart').getContext('2d');
+                    const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+                    gradient.addColorStop(0, 'rgba(16, 185, 129, 0.5)'); // Зеленый
+                    gradient.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+
+                    equityChart.data.labels = data.labels;
+                    equityChart.data.datasets = [{
+                        label: 'Portfolio Value',
+                        data: data.data,
+                        borderColor: '#10b981', // Зеленый
+                        backgroundColor: gradient,
+                        borderWidth: 2,
+                        fill: true
+                    }];
+                    // Динамическая шкала Y для красоты (минимальное значение чуть меньше минимума)
+                    const minVal = Math.min(...data.data);
+                    equityChart.options.scales.y.min = minVal * 0.999;
+
+                    equityChart.update();
+                }
+            } catch (e) {
+                console.error('Equity chart error:', e);
+            }
+        }
+
+        // Главный цикл
+        async function refreshAll() {
+            await Promise.all([fetchStatus(), fetchRates(), updateEquityChart()]);
+
+            const now = new Date();
+            document.getElementById('last-update').textContent = now.toLocaleTimeString();
+        }
+
+        // Старт
+        initChart();
+        refreshAll();
+        setInterval(refreshAll, 60000); // Раз в 60 сек
+    </script>
+
+</body>
+
+</html>

@@ -1,0 +1,33 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Main Daemon (REST polling)",
+      "runtimeExecutable": "/Users/admin/Documents/Antigravity/FundingRate/venv/bin/python",
+      "runtimeArgs": ["main.py", "--mode", "daemon"],
+      "port": 0,
+      "autoPort": true
+    },
+    {
+      "name": "WebSocket Daemon",
+      "runtimeExecutable": "/Users/admin/Documents/Antigravity/FundingRate/venv/bin/python",
+      "runtimeArgs": ["ws_daemon.py"],
+      "port": 0,
+      "autoPort": true
+    },
+    {
+      "name": "Telegram Daemon",
+      "runtimeExecutable": "/Users/admin/Documents/Antigravity/FundingRate/venv/bin/python",
+      "runtimeArgs": ["tg_daemon.py"],
+      "port": 0,
+      "autoPort": true
+    },
+    {
+      "name": "Web Dashboard (Flask)",
+      "runtimeExecutable": "/Users/admin/Documents/Antigravity/FundingRate/venv/bin/python",
+      "runtimeArgs": ["dashboard.py"],
+      "port": 5050,
+      "autoPort": false
+    }
+  ]
+}

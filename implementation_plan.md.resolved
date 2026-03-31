@@ -1,0 +1,34 @@
+# V10: Защита плеча (Basis Stop-Loss)
+
+Цель: Внедрить защитный предохранитель 24/7 для защиты залога (Margin) от резкого расхождения цен Спота и Фьючерса (Basis Blowout), которое может привести к ликвидации при использовании плеча х3.
+
+## Обоснование риска (Дельта-нейтральность с плечом)
+Наш бот дельта-нейтрален (Лонг Спот + Шорт Фьючерс), поэтому ему не страшно падение или рост самого биткоина.
+Однако ему страшен **Basis** (Разница между ценой Фьючерса и Спота).
+Если мы зашли с залогом $200 и плечом х3 (Номинал $600), а цена Фьючерса внезапно улетит на 5% выше Спота, наш шорт сгенерирует убыток $30. Для номинала это 5%, а для нашего залога в $200 — это убыток **15%**. Биржа ликвидирует позицию при просадке в 20-25%.
+
+## Proposed Changes
+
+### [MODIFY] [config.py](file:///Users/admin/Documents/Antigravity/FundingRate/config.py) / [.env](file:///Users/admin/Documents/Antigravity/FundingRate/.env)
+Добавить предохранительный порог:
+- `BASIS_STOP_LOSS_PCT=2.0` (По умолчанию 2.0%). Если спред расходится более чем на 2%, бот экстренно кроет позу в мини-убыток, чтобы спасти основной депозит от ликвидации.
+
+### [MODIFY] [src/funding.py](file:///Users/admin/Documents/Antigravity/FundingRate/src/funding.py) (опционально)
+Убедиться, что [get_basis()](file:///Users/admin/Documents/Antigravity/FundingRate/src/funding.py#156-178) корректно отдает процентное расхождение.
+Сейчас `basis_pct` = [(swap - spot) / spot * 100](file:///Users/admin/Documents/Antigravity/FundingRate/src/strategy.py#145-177). Если своп сильно дороже спота (памп фьючерса на фоне шорт-сквиза), `basis_pct` будет резко положительным (например, +3.5%). 
+
+### [MODIFY] [src/strategy.py](file:///Users/admin/Documents/Antigravity/FundingRate/src/strategy.py)
+Создать функцию `monitor_risks(trader, notifier)`, которая заменит старую [check_negative_rate](file:///Users/admin/Documents/Antigravity/FundingRate/main.py#189-201).
+Она будет циклично проходить по всем открытым `PaperTrader.get_open_positions()`, запрашивать для каждой [get_basis()](file:///Users/admin/Documents/Antigravity/FundingRate/src/funding.py#156-178) и [get_funding_rate()](file:///Users/admin/Documents/Antigravity/FundingRate/src/funding.py#43-71).
+- **Логика 1 (Отрицательный фандинг):** Если `rate < 0`, шлем алерт (или закрываем, если ниже `EXIT_THRESHOLD`).
+- **Логика 2 (Stop-Loss вышибает):** Если `basis_pct > BASIS_STOP_LOSS_PCT`, немедленно делаем `trader.close_position(sym)` и шлем **🚨🚨🚨 ALERT: STOP-LOSS TRIGGERED** в Телеграм.
+
+### [MODIFY] [main.py](file:///Users/admin/Documents/Antigravity/FundingRate/main.py)
+В демоне (`--mode daemon`) заменить старый джоб `schedule.every(5).minutes.do(check_negative_rate)` на новый джоб `schedule.every(2).minutes.do(monitor_risks_job)`.
+Увеличим частоту проверки с 5 до 2 минут, так как ликвидация — дело быстрое.
+
+## Verification Plan
+1. Установка параметра в [.env](file:///Users/admin/Documents/Antigravity/FundingRate/.env).
+2. Внесение изменений в [strategy.py](file:///Users/admin/Documents/Antigravity/FundingRate/src/strategy.py) и [main.py](file:///Users/admin/Documents/Antigravity/FundingRate/main.py).
+3. Запуск демона и проверка логов (каждые 2 минуты бот должен рапортовать о проверке рисков).
+4. Эмуляция резкого скачка: временно поставить `BASIS_STOP_LOSS_PCT = 0.0001` в коде, чтобы принудительно вызвать срабатывание Panic Close и проверить Телеграм-оповещение.

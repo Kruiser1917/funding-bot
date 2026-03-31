@@ -1,0 +1,76 @@
+# План разработки OKX Funding Rate Bot
+
+## V1: Базовый функционал (MVP)
+
+- [x] Настроить окружение (venv, .env, [.gitignore](file:///Users/admin/Documents/Antigravity/FundingRate/.gitignore), requirements.txt).
+- [x] Реализовать [Config](file:///Users/admin/Documents/Antigravity/FundingRate/config.py#10-76) для загрузки переменных и констант.
+- [x] Написать функцию получения ставок финансирования из REST API OKX.
+- [x] Настроить Telegram-уведомления ([src/notifier.py](file:///Users/admin/Documents/Antigravity/FundingRate/src/notifier.py)).
+- [x] Подключить расписание: 3 раза в суд (начисление) + 1 раз (отчет).
+- [x] Написать симулятор портфеля ([src/simulator.py](file:///Users/admin/Documents/Antigravity/FundingRate/src/simulator.py)).
+- [x] Собрать [main.py](file:///Users/admin/Documents/Antigravity/FundingRate/main.py) в виде демона (`--mode daemon`).
+
+## V2: Фиксы и Автоматизация (AutoStrategy)
+
+- [x] Исправить AttributeError: `NoneType` object has no attribute `pnl` в `notify.py`.
+- [x] Перейти с `asyncio` на синхронный код в [notifier.py](file:///Users/admin/Documents/Antigravity/FundingRate/src/notifier.py) для стабильности.
+- [x] Реализовать модуль авто-стратегии ([src/strategy.py](file:///Users/admin/Documents/Antigravity/FundingRate/src/strategy.py)).
+- [x] Настроить авто-закрытие позиций при отрицательной или низкой ставке.
+
+## V3: Basis Filter & Reinvestment
+
+- [x] Добавить фильтр по отрицательному спреду (Basis Filter = Спот минус Фьючерс).
+- [x] Реализовать автореинвестирование прибыли (сложный процент).
+
+## V4: ACID Хранилище (SQLite3)
+
+- [x] Спроектировать [Database](file:///Users/admin/Documents/Antigravity/FundingRate/src/database.py#15-240) на базе SQLite3.
+- [x] Написать скрипт миграции старого JSON (`positions.json`) в `bot.db`.
+- [x] Заменить вызовы чтения/сохранения JSON на транзакционные SQL-запросы в [PaperTrader](file:///Users/admin/Documents/Antigravity/FundingRate/src/simulator.py#35-267).
+
+## V5: Dynamic Market Adaptation
+
+- [x] Умная подстройка `ENTER_THRESHOLD` (от 15 до 35) в зависимости от среднего по топ-20 монетам.
+- [x] Динамический `MIN_POSITIVE_RATIO` на основе общего аппетита к лонгам (>70% монет в плюсе).
+
+## V6: Web Dashboard & Backtest Engine
+
+- [x] [dashboard.py](file:///Users/admin/Documents/Antigravity/FundingRate/dashboard.py): Flask-сервер для Web UI с рендерингом `bot.db` портфеля.
+- [x] График "Portfolio Equity Curve" на базе Chart.js.
+- [x] [backtest.py](file:///Users/admin/Documents/Antigravity/FundingRate/src/backtest.py): Оффлайн-симулятор на исторических данных за 3 месяца.
+- [x] Оптимизация параметров (Grid Search).
+
+## V7: WebSocket Streaming (Isolated)
+
+- [x] Изучить OKX WS API `wss://ws.okx.com:8443/ws/v5/public` (push channel `funding-rate`).
+- [x] [src/ws_client.py](file:///Users/admin/Documents/Antigravity/FundingRate/src/ws_client.py): Подключение, Heartbeat (`ping/pong` 25s), Exponential Backoff + Auto-Reconnect.
+- [x] [src/ws_strategy.py](file:///Users/admin/Documents/Antigravity/FundingRate/src/ws_strategy.py): Обработчик пушей с 2-tick фильтром ложных пробоев и `asyncio.Lock` от Race Condition.
+- [x] [ws_daemon.py](file:///Users/admin/Documents/Antigravity/FundingRate/ws_daemon.py): Изолированный WS-бот с отдельной SQLite БД `bot_ws.db`.
+
+## V8: Leverage & Maker Execution
+
+- [x] Обновить [Database](file:///Users/admin/Documents/Antigravity/FundingRate/src/database.py#15-240) миграцией `margin_usd` и `order_type`.
+- [x] Интегрировать кредитное плечо (`LEVERAGE=3`) в [simulator.py](file:///Users/admin/Documents/Antigravity/FundingRate/src/simulator.py) для x3 доходности.
+- [x] Снизить комиссии симуляции с `0.1%` (Taker) до `0.02%` (Maker).
+- [x] Обновить Telegram TG-сообщения (вывод плеча, маржи и номинала).
+- [x] Снизить `ENTER_THRESHOLD` в [.env](file:///Users/admin/Documents/Antigravity/FundingRate/.env) до 8% (т.к. комиссии упали в 5 раз).
+
+## V9: Инфраструктура и LIVE Trading (Backlog)
+
+- [ ] Переход от Paper trading к реальным ордерам (`RealTrader`).
+- [ ] Написать Chase-алгоритм для Maker-ордеров (авто-перестановка за ценой).
+- [ ] Докеризация (Dockerfile, docker-compose.yml).
+- [ ] Бэкапы БД в TG.
+
+## V10: Защита плеча (Basis Stop-Loss)
+- [x] Настроить фильтр `BASIS_STOP_LOSS_PCT` в config.py.
+- [x] Реализовать метод [monitor_risks](file:///Users/admin/Documents/Antigravity/FundingRate/src/strategy.py#145-224) в [strategy.py](file:///Users/admin/Documents/Antigravity/FundingRate/src/strategy.py).
+- [x] Подключить мониторинг в [main.py](file:///Users/admin/Documents/Antigravity/FundingRate/main.py) каждые 2 минуты.
+- [x] Подключить фоновый мониторинг в [ws_daemon.py](file:///Users/admin/Documents/Antigravity/FundingRate/ws_daemon.py).
+
+## V11: Интерактивный Telegram-интерфейс
+
+- [x] Создать [tg_daemon.py](file:///Users/admin/Documents/Antigravity/FundingRate/tg_daemon.py) (Long Polling через `pyTelegramBotAPI`).
+- [x] Подключить чтение из `bot.db` для команд `/status` и `/positions`.
+- [x] Сделать `/close_all` экстренной кнопкой-выручалкой.
+- [x] Авторизация: игнорировать команды не от `TELEGRAM_CHAT_ID`.

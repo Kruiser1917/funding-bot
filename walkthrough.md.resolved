@@ -1,0 +1,110 @@
+# OKX Funding Rate Bot — Walkthrough
+
+## V1: Базовый бот
+
+Все модули: [config.py](file:///Users/admin/Documents/Antigravity/FundingRate/config.py), [src/funding.py](file:///Users/admin/Documents/Antigravity/FundingRate/src/funding.py), [src/simulator.py](file:///Users/admin/Documents/Antigravity/FundingRate/src/simulator.py), [src/notifier.py](file:///Users/admin/Documents/Antigravity/FundingRate/src/notifier.py), [src/reporter.py](file:///Users/admin/Documents/Antigravity/FundingRate/src/reporter.py), [main.py](file:///Users/admin/Documents/Antigravity/FundingRate/main.py). Scan, open, close, funding, history, daemon, TG-уведомления.
+
+## V2: Фиксы + Авто-стратегия
+
+- **ROI** считается от `portfolio_value`
+- **HTTP retry** с exponential backoff (SSL errors)
+- **Авто-стратегия** (`--mode auto` и в [daemon](file:///Users/admin/Documents/Antigravity/FundingRate/main.py#150-212))
+
+## V3: Web Dashboard
+
+Встроенная веб-панель мониторинга (Flask + Chart.js).
+
+## V4: Live Preparation & Reliability
+
+Версия 4 фокусируется на отказоустойчивости и умном входе в сделки для подготовки к торговле реальными деньгами.
+
+### 1. SQLite Database ([src/database.py](file:///Users/admin/Documents/Antigravity/FundingRate/src/database.py))
+
+Полная миграция с `positions.json` на реляционную базу данных SQLite.
+
+- Бот больше не подвержен порче JSON-файла при рестарте ноута/выключении света
+- ACID-транзакции при начислении профита
+- Автоматическая бесшовная миграция `positions.json -> bot.db` при первом запуске
+
+### 2. Basis Strategy Filter
+
+Проблема арбитража заключается в спреде между Spot и Perpetual Swap ценой (Basis). Если Basis сильно отрицательный, вход в сделку принесет больший бумажный убыток, чем выплаты фандинга.
+
+- Добавлена проверка спреда: [get_basis(symbol)](file:///Users/admin/Documents/Antigravity/FundingRate/src/funding.py#156-178)
+- Настроечный параметр `MAX_BASIS_LOSS_PCT` в [.env](file:///Users/admin/Documents/Antigravity/FundingRate/.env) (например `0.1%`)
+- Бот бракует сделки с плохим спредом на входе.
+
+### 3. Auto-Compounding
+
+- Добавлена поддержка "сложного процента".
+- Настроечный параметр `USE_COMPOUNDING = True` в [.env](file:///Users/admin/Documents/Antigravity/FundingRate/.env).
+- При включении `POSITION_SIZE` становится динамическим: бот распределяет свободный [balance](file:///Users/admin/Documents/Antigravity/FundingRate/src/simulator.py#54-58) (включая заработанный funding) на свободные слоты позиций. Профит реинвестируется с каждым циклом.
+
+### 4. Auth Client Skeleton
+
+- Написан [OKXAuthClient](file:///Users/admin/Documents/Antigravity/FundingRate/src/auth.py#17-99) ([src/auth.py](file:///Users/admin/Documents/Antigravity/FundingRate/src/auth.py)), реализующий алгоритм подписи запросов OKX V5 через HMAC SHA256.
+- Класс готов к использованию при переключении `PaperTrading -> LiveTrading`.
+
+## V5: Динамическая адаптация рынка (Dynamic Sentiment)
+
+Вместо жестких настроек [.env](file:///Users/admin/Documents/Antigravity/FundingRate/.env), бот подстраивается под текущий характер рынка:
+
+- Рассчитывается **средняя ставка по Топ-20 монетам** и % монет с позитивным Rate на всей бирже.
+- `ENTER_THRESHOLD` плавает: если рынок бычий и доходности огромные, порог повышается, чтобы собирать лучшее; если медвежий — снижается (до половины базового), чтобы все равно зарабатывать.
+- `MIN_POSITIVE_RATIO` плавает: если рынок "зеленый", порог стабильности смягчается; если "красный" — ужесточается до 90%+.
+
+## V6: Backtest & Equity Analytics
+
+### 1. Offline Backtesting ([src/backtest.py](file:///Users/admin/Documents/Antigravity/FundingRate/src/backtest.py))
+
+- Скрипт-симулятор для тестирования стратегии "В прошлом" на исторических данных с OKX (до 6 месяцев).
+- Учитывает комиссии, виртуально начисляет фандинг, применяет динамические настройки V5 на исторических точках (8-часовые циклы).
+- **Вывод**: Общий PnL, % годовых ROI, количество сделок, максимальная просадка.
+- Способ запуска: `python src/backtest.py`
+
+### 2. График стоимости портфеля (Equity Curve)
+
+- В [database.py](file:///Users/admin/Documents/Antigravity/FundingRate/src/database.py) добавлена таблица [equity_history](file:///Users/admin/Documents/Antigravity/FundingRate/src/database.py#190-195).
+- Бот делает снимки капитала портфеля после каждой выплаты фандинга.
+- На Web Dashboard (главная страница) выведен график роста капитала, показывающий суммарный баланс + нереализованный PnL.
+
+## V7: WebSocket Streaming (Изолированный Бот)
+
+Для мгновенной реакции на изменения рынка (десятки миллисекунд вместо 1-часовой задержки) внедрен [ws_daemon.py](file:///Users/admin/Documents/Antigravity/FundingRate/ws_daemon.py).
+
+- **Архитектура**: Работает параллельно с основным ботом. Не пересекается с `bot.db`, использует изолированную `bot_ws.db`.
+- **Spike Filter**: OKX присылает данные раз в 30–90с. Бот ждет двух подряд идущих push-обновлений, где ставка выше порога, чтобы подтвердить тренд. Одиночный флаш-памп игнорируется.
+- **Race Condition Lock**: Исключено дублирование позиций при одновременном скачке по нескольким монетам.
+
+## V8: Кредитное плечо (Leverage x3) и Лимитные Входы (Maker)
+
+Порог для входа ранее составлял 15% годовых из-за входа рыночным ордером (0.1% Taker).
+
+- **Maker Fee**: Эмуляция лимитных ордеров снизила комиссию в 5 раз (с 0.1% до 0.02%).
+- **Leverage x3**: Введена поддержка маржинальной торговли. Бот заходит на номинальную сумму $600 при залоговой марже $200. Прибыль от фандинга утроена.
+- **Новая Экономика**: `ENTER_THRESHOLD` снижен до **8% годовых**, так как дешевая комиссия входа отбивается профитом гораздо быстрее даже на "холодном" рынке.
+
+## V10: Защита плеча (Basis Stop-Loss)
+Т.к. в V8 введено маржинальное плечо х3, появился риск ликвидации залога в случае непредвиденных сквизов (когда фьючерс отрывается от спота).
+- Бот 24/7 (каждые 2 минуты) сверяет цену Spot и Swap для всех открытых позиций.
+- Если спред между ними расширяется более чем на 2.0% (параметр `BASIS_STOP_LOSS_PCT`), значит позиция сгенерировала существенный убыток (для 3х плеча это 6% от маржи).
+- Бот совершает `Экстренное Закрытие` (Panic Close) позиции по рынку и шлет `🚨🚨🚨 ALERT` в Telegram, спасая остатки маржи от полной ликвидации. Механизм внедрен во все демоны.
+
+## V11: Интерактивный Telegram-интерфейс (tg_daemon.py)
+Бот теперь является 2-way системой. Написан на `pyTelegramBotAPI`, работает с `bot.db`. Авторизация строго по `TELEGRAM_CHAT_ID` админа.
+Доступны команды:
+- `/status` — Сводка баланса, ROI, и количество сделок.
+- `/positions` — Список текущих открытых монет, их маржа и уже заработанный фандинг.
+- `/close_all` — Panic Button. Принудительное закрытие всех позиций на данный момент.
+
+## Команды
+
+```bash
+source venv/bin/activate
+
+# 1. Запуск фонового бота (торговля, БД, TG)
+python main.py --mode daemon
+
+# 2. Запуск панели мониторинга (в новом терминале)
+python dashboard.py
+```

@@ -1,0 +1,19 @@
+[Unit]
+Description=OKX Funding Rate Bot - WebSocket Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=deploy
+WorkingDirectory=/opt/funding-bot
+ExecStart=/opt/funding-bot/venv/bin/python ws_daemon.py
+Restart=always
+RestartSec=10
+EnvironmentFile=/opt/funding-bot/.env
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=funding-ws
+
+[Install]
+WantedBy=multi-user.target

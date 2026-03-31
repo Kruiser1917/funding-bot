@@ -1,0 +1,20 @@
+[Unit]
+Description=OKX Funding Rate Bot - Main Daemon (REST polling)
+After=network.target
+
+[Service]
+Type=simple
+User=deploy
+WorkingDirectory=/opt/funding-bot
+ExecStart=/opt/funding-bot/venv/bin/python main.py --mode daemon
+Restart=always
+RestartSec=10
+EnvironmentFile=/opt/funding-bot/.env
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=funding-main
+
+[Install]
+WantedBy=multi-user.target
