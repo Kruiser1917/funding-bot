@@ -121,6 +121,40 @@ class Notifier:
         )
         self.send(text)
 
+    def weekly_report(self, summary_main: dict, summary_ws: dict) -> None:
+        """Еженедельная сводка по обоим ботам."""
+        total_capital = summary_main["capital"] + summary_ws["capital"]
+        total_portfolio = summary_main["portfolio_value"] + summary_ws["portfolio_value"]
+        total_funding = summary_main["total_funding_earned"] + summary_ws["total_funding_earned"]
+        total_commissions = summary_main["total_commissions"] + summary_ws["total_commissions"]
+        total_closed = summary_main["closed_trades_count"] + summary_ws["closed_trades_count"]
+        total_roi = round((total_portfolio - total_capital) / total_capital * 100, 4) if total_capital else 0
+        net_profit = total_portfolio - total_capital
+
+        text = (
+            f"📊 <b>ЕЖЕНЕДЕЛЬНЫЙ ОТЧЁТ</b>\n\n"
+            f"🔹 <b>REST Бот:</b>\n"
+            f"  Портфель: <b>${summary_main['portfolio_value']:,.2f}</b> | "
+            f"ROI: <b>{summary_main['roi_pct']:+.2f}%</b>\n"
+            f"  Фандинг: <b>${summary_main['total_funding_earned']:,.4f}</b> | "
+            f"Сделок закрыто: <b>{summary_main['closed_trades_count']}</b>\n\n"
+            f"⚡️ <b>WS Бот:</b>\n"
+            f"  Портфель: <b>${summary_ws['portfolio_value']:,.2f}</b> | "
+            f"ROI: <b>{summary_ws['roi_pct']:+.2f}%</b>\n"
+            f"  Фандинг: <b>${summary_ws['total_funding_earned']:,.4f}</b> | "
+            f"Сделок закрыто: <b>{summary_ws['closed_trades_count']}</b>\n\n"
+            f"💰 <b>ИТОГО:</b>\n"
+            f"  Капитал: <b>${total_portfolio:,.2f}</b> / ${total_capital:,.0f}\n"
+            f"  Чистая прибыль: <b>${net_profit:+,.4f}</b>\n"
+            f"  Фандинг заработано: <b>${total_funding:,.4f}</b>\n"
+            f"  Комиссии уплачено: <b>${total_commissions:,.4f}</b>\n"
+            f"  ROI: <b>{total_roi:+.2f}%</b> | Закрыто сделок: <b>{total_closed}</b>\n"
+            f"  Дней работы: <b>{summary_main['days_running']}</b>\n\n"
+            f"📈 Прогноз/мес: <b>${summary_main['projected_monthly'] + summary_ws['projected_monthly']:+,.2f}</b>\n"
+            f"📈 Прогноз/год: <b>${summary_main['projected_annual'] + summary_ws['projected_annual']:+,.2f}</b>"
+        )
+        self.send(text)
+
     def alert_high_rate(self, symbol: str, annual_pct: float) -> None:
         """Алерт о высоком funding rate."""
         self.send(

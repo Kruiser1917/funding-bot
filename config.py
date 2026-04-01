@@ -40,11 +40,21 @@ class Config:
     
     # V4: Продвинутые параметры стратегии
     USE_COMPOUNDING: bool = os.getenv("USE_COMPOUNDING", "false").lower() == "true"
+    # Динамический размер позиции: масштабируем от POSITION_SIZE до POSITION_SIZE_MAX
+    # в зависимости от annual_pct (от ENTER_THRESHOLD до RATE_CAP_FOR_SIZING)
+    DYNAMIC_SIZING: bool = os.getenv("DYNAMIC_SIZING", "true").lower() == "true"
+    POSITION_SIZE_MAX: float = float(os.getenv("POSITION_SIZE_MAX", "400"))  # максимум USD
+    RATE_CAP_FOR_SIZING: float = float(os.getenv("RATE_CAP_FOR_SIZING", "40"))  # % годовых для макс. размера
     # Максимальный разрешенный отрицательный спред (например 0.1% означает что фьючерс может быть на 0.1% дешевле спота)
     MAX_BASIS_LOSS_PCT: float = float(os.getenv("MAX_BASIS_LOSS_PCT", "0.1"))
     
     # V10: Basis Stop-Loss (Защита маржи плеча x3 от ликвидации)
     BASIS_STOP_LOSS_PCT: float = float(os.getenv("BASIS_STOP_LOSS_PCT", "2.0"))
+
+    # Фильтр ликвидности: минимальный 24h объём (USD) для входа
+    MIN_VOLUME_24H: float = float(os.getenv("MIN_VOLUME_24H", "5000000"))  # $5M
+    # Минимальный Open Interest (USD)
+    MIN_OI: float = float(os.getenv("MIN_OI", "2000000"))  # $2M
 
     # Базовый URL OKX REST API
     OKX_BASE_URL: str = "https://www.okx.com"
@@ -98,4 +108,8 @@ class Config:
             )
         if not cls.TG_TOKEN:
             warnings.append("TELEGRAM_TOKEN не задан — Telegram-уведомления отключены")
+        if cls.DYNAMIC_SIZING and cls.POSITION_SIZE_MAX < cls.POSITION_SIZE:
+            warnings.append(
+                f"POSITION_SIZE_MAX ({cls.POSITION_SIZE_MAX}) < POSITION_SIZE ({cls.POSITION_SIZE})"
+            )
         return warnings

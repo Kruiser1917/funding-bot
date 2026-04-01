@@ -178,6 +178,40 @@ def get_basis(symbol: str) -> dict | None:
 
 
 
+def get_open_interest(symbol: str) -> dict | None:
+    """Open Interest и 24h объём для symbol.
+
+    Returns:
+        {"oi_usd": float, "vol24h_usd": float} или None
+    """
+    # Open Interest
+    oi_data = _okx_get("/api/v5/public/open-interest", {"instId": symbol})
+    oi_usd = 0.0
+    if oi_data:
+        oi_usd = float(oi_data[0].get("oiCcy", 0))
+        # oiCcy — OI в базовой валюте, нужна цена для конвертации
+        # Получаем цену через ticker для конвертации в USD
+        ticker = _okx_get("/api/v5/market/ticker", {"instId": symbol})
+        if ticker:
+            last_price = float(ticker[0].get("last", 0))
+            oi_usd = oi_usd * last_price
+            vol24h_usd = float(ticker[0].get("volCcy24h", 0)) * last_price
+        else:
+            vol24h_usd = 0.0
+    else:
+        # Fallback: хотя бы объём из ticker
+        ticker = _okx_get("/api/v5/market/ticker", {"instId": symbol})
+        if not ticker:
+            return None
+        last_price = float(ticker[0].get("last", 0))
+        vol24h_usd = float(ticker[0].get("volCcy24h", 0)) * last_price
+
+    return {
+        "oi_usd": round(oi_usd, 2),
+        "vol24h_usd": round(vol24h_usd, 2),
+    }
+
+
 def get_market_summary(symbols: list[str] | None = None) -> pd.DataFrame:
     """Расширенная таблица: все rates + история для топ-3 по rate."""
     df = get_all_rates(symbols)

@@ -4,11 +4,30 @@
 import logging
 
 from config import Config
-from src.funding import get_all_rates, get_basis, get_funding_history
+from src.funding import get_all_rates, get_basis, get_funding_history, get_funding_rate, get_open_interest
 from src.notifier import Notifier
 from src.simulator import PaperTrader
 
 logger = logging.getLogger(__name__)
+
+
+def calc_position_size(annual_pct: float) -> float:
+    """Рассчитать размер позиции по annual_pct.
+
+    Линейная интерполяция: ENTER_THRESHOLD → POSITION_SIZE,
+    RATE_CAP_FOR_SIZING → POSITION_SIZE_MAX.
+    """
+    if not Config.DYNAMIC_SIZING:
+        return Config.POSITION_SIZE
+
+    low = Config.ENTER_THRESHOLD
+    high = Config.RATE_CAP_FOR_SIZING
+    if high <= low:
+        return Config.POSITION_SIZE
+
+    t = min(max((annual_pct - low) / (high - low), 0.0), 1.0)
+    size = Config.POSITION_SIZE + t * (Config.POSITION_SIZE_MAX - Config.POSITION_SIZE)
+    return round(size, 2)
 
 
 class AutoStrategy:
@@ -31,7 +50,6 @@ class AutoStrategy:
         # ── Проверка на закрытие ──────────────────────────────
         for pos in open_positions:
             sym = pos["symbol"]
-            from src.funding import get_funding_rate
             info = get_funding_rate(sym)
             if not info:
                 continue
@@ -49,65 +67,50 @@ class AutoStrategy:
                     (sym, f"достигнут лимит {pos['funding_count']} периодов")
                 )
 
-        # ── Проверка на открытие ──────────────────────────────
-        # Условия: есть место + есть свободный баланс
-        can_open = Config.MAX_POSITIONS - len(open_positions) + len(result["to_close"])
-        free_balance = self._trader.balance
-        
-        if can_open <= 0:
-            return result
-
-        # Расчет размера позиции с учетом Auto-compounding
-        if Config.USE_COMPOUNDING:
-            # Распределяем весь доступный баланс поровну на оставшиеся свободные слоты
-            pos_size = round(free_balance / can_open, 2)
-            # Ограничитель минимальной позиции (например $10)
-            if pos_size < 10:
-                pos_size = Config.POSITION_SIZE
-        else:
-            pos_size = Config.POSITION_SIZE
-
-        if free_balance < pos_size:
-            return result
-
-        # Сканируем рынок
+        # ── Сканируем рынок ──────────────────────────────────
         df = get_all_rates()
         if df.empty:
             return result
 
         # ── Динамическая адаптация стратегии (V5) ──
-        # 1. Считаем "температуру" рынка по топ-20 монетам
         top_20 = df.head(20)
         market_avg_annual = top_20["annual_pct"].mean()
         market_bullishness = (df["rate"] > 0).astype(int).mean() * 100
 
-        # 2. Динамический ENTER_THRESHOLD
-        # Берем 80% от среднего топа, но не ниже половины от базовых настроек и не выше 35%
         dynamic_enter = max(Config.ENTER_THRESHOLD / 2, min(market_avg_annual * 0.8, 35.0))
-        
-        # 3. Динамический MIN_POSITIVE_RATIO
-        # Если рынок сильно зеленый (>70% монет в плюсе), можно рисковать и брать монеты с ratio похуже.
-        # Если рынок красный, ужесточаем фильтр.
+
         if market_bullishness > 70:
             dynamic_pos_ratio = max(50.0, Config.MIN_POSITIVE_RATIO - 10)
         else:
             dynamic_pos_ratio = min(90.0, Config.MIN_POSITIVE_RATIO + 10)
 
-        logger.info("Market Adapt: AvgTop20=%.1f%%, Bullish=%.0f%% -> Enter_Thresh=%.1f%%, PosRatio_Thresh=%.0f%%", 
+        logger.info("Market Adapt: AvgTop20=%.1f%%, Bullish=%.0f%% -> Enter=%.1f%%, PosRatio=%.0f%%",
                     market_avg_annual, market_bullishness, dynamic_enter, dynamic_pos_ratio)
 
-        for _, row in df.iterrows():
-            if can_open <= 0 or free_balance < pos_size:
-                break
+        # ── Rotation: найти худшую открытую позицию ──────────
+        worst_pos = None
+        worst_annual = float("inf")
+        for pos in open_positions:
+            sym = pos["symbol"]
+            if sym in [s for s, _ in result["to_close"]]:
+                continue  # уже планируем закрыть
+            info = get_funding_rate(sym)
+            if info:
+                if info["annual_pct"] < worst_annual:
+                    worst_annual = info["annual_pct"]
+                    worst_pos = pos
 
+        # ── Проверка на открытие ──────────────────────────────
+        can_open = Config.MAX_POSITIONS - len(open_positions) + len(result["to_close"])
+        free_balance = self._trader.balance
+
+        for _, row in df.iterrows():
             sym = row["symbol"]
             annual = row["annual_pct"]
 
-            # Пропускаем уже открытые
             if sym in open_symbols:
                 continue
 
-            # Проверка динамического порога
             if annual < dynamic_enter:
                 continue
 
@@ -115,30 +118,70 @@ class AutoStrategy:
             hist = get_funding_history(sym, limit=90)
             if hist.empty:
                 continue
-                
+
             positive_ratio = hist.attrs.get("positive_ratio", 0)
             if positive_ratio < dynamic_pos_ratio:
                 logger.info("Пропуск %s: positive_ratio=%.1f%% < %.1f%% (dynamic)",
                             sym, positive_ratio, dynamic_pos_ratio)
                 continue
 
-            # Basis Filter (спред Spot vs Swap)
+            # Liquidity Filter (OI + Volume)
+            if Config.MIN_VOLUME_24H > 0 or Config.MIN_OI > 0:
+                liq = get_open_interest(sym)
+                if liq:
+                    if liq["vol24h_usd"] < Config.MIN_VOLUME_24H:
+                        logger.info("Пропуск %s: vol24h=$%.0f < $%.0f",
+                                    sym, liq["vol24h_usd"], Config.MIN_VOLUME_24H)
+                        continue
+                    if liq["oi_usd"] < Config.MIN_OI:
+                        logger.info("Пропуск %s: OI=$%.0f < $%.0f",
+                                    sym, liq["oi_usd"], Config.MIN_OI)
+                        continue
+
+            # Basis Filter
             basis_info = get_basis(sym)
             if not basis_info:
                 continue
-            
+
             basis_pct = basis_info["basis_pct"]
             if basis_pct < -Config.MAX_BASIS_LOSS_PCT:
                 logger.info("Пропуск %s: Basis=%.4f%% (ниже порога -%.2f%%)",
                             sym, basis_pct, Config.MAX_BASIS_LOSS_PCT)
                 continue
 
-            result["to_open"].append(
-                (sym, f"annual={annual:.1f}%, pos={positive_ratio:.0f}%, basis={basis_pct:.2f}%", pos_size)
-            )
-            open_symbols.add(sym)
-            can_open -= 1
-            free_balance -= pos_size
+            # Динамический размер позиции
+            pos_size = calc_position_size(annual)
+
+            # Есть свободный слот — просто открываем
+            if can_open > 0 and free_balance >= pos_size:
+                result["to_open"].append(
+                    (sym, f"annual={annual:.1f}%, pos={positive_ratio:.0f}%, basis={basis_pct:.2f}%", pos_size)
+                )
+                open_symbols.add(sym)
+                can_open -= 1
+                free_balance -= pos_size
+                continue
+
+            # ── Rotation: все слоты заняты, но кандидат сильно лучше худшей позиции ──
+            if worst_pos and annual > worst_annual * 1.5 and annual - worst_annual >= 5.0:
+                worst_sym = worst_pos["symbol"]
+                logger.info("ROTATION: %s (%.1f%%) вытесняет %s (%.1f%%)",
+                            sym, annual, worst_sym, worst_annual)
+                result["to_close"].append(
+                    (worst_sym, f"rotation: замена на {sym} ({annual:.1f}% vs {worst_annual:.1f}%)")
+                )
+                margin_back = worst_pos.get("margin_usd", worst_pos["size_usd"])
+                result["to_open"].append(
+                    (sym, f"rotation: annual={annual:.1f}% (заменил {worst_sym} {worst_annual:.1f}%)", pos_size)
+                )
+                open_symbols.add(sym)
+                open_symbols.discard(worst_sym)
+                free_balance += margin_back - pos_size
+                worst_pos = None
+                continue
+
+            if can_open <= 0:
+                break
 
         return result
 
@@ -182,8 +225,6 @@ def monitor_risks(trader: PaperTrader, notifier: Notifier) -> None:
     if not open_pos:
         return
 
-    from src.funding import get_funding_rate, get_basis
-    
     for pos in open_pos:
         sym = pos["symbol"]
         

@@ -14,10 +14,8 @@
 
 import argparse
 import logging
-import os
 import sys
 import time
-from datetime import datetime, timezone
 
 import schedule
 
@@ -129,7 +127,8 @@ def cmd_daemon(trader: PaperTrader, notifier: Notifier) -> None:
     print("    - Каждый час: сканирование rate + авто-стратегия")
     print("    - 00:05, 08:05, 16:05 UTC: начисление funding")
     print("    - 06:00 UTC (09:00 МСК): ежедневный отчёт")
-    print("    - Каждые 5 мин: проверка отрицательного rate\n")
+    print("    - Каждые 2 мин: мониторинг рисков (Basis Stop-Loss)")
+    print("    - Каждые 5 мин: watchdog (здоровье демонов)\n")
 
     strategy = AutoStrategy(trader, notifier)
 
@@ -160,11 +159,47 @@ def cmd_daemon(trader: PaperTrader, notifier: Notifier) -> None:
         logger.info("Daily report")
         notifier.daily_report(trader.summary())
 
+    def weekly_report_job():
+        """Еженедельный отчёт по обоим ботам."""
+        logger.info("Weekly report")
+        from src.database import Database
+        summary_main = trader.summary()
+        db_ws = Database(db_path=Config.DB_WS_PATH)
+        trader_ws = PaperTrader()
+        trader_ws.db = db_ws
+        summary_ws = trader_ws.summary()
+        notifier.weekly_report(summary_main, summary_ws)
+
     def monitor_risks_job():
         """Мониторинг Basis Stop-Loss и отрицательного фандинга."""
         logger.info("Мониторинг рисков (Basis Stop-Loss)")
         from src.strategy import monitor_risks
         monitor_risks(trader, notifier)
+
+    # Множество уже отправленных алертов (чтобы не спамить)
+    _watchdog_alerted: set[str] = set()
+
+    def watchdog_job():
+        """Проверка здоровья всех демонов, алерт если кто-то упал."""
+        from src.healthcheck import check_all
+        statuses = check_all(max_age_sec=300)
+        expected = {"ws_daemon", "tg_daemon"}  # main_daemon не проверяем сам себя
+        for name in expected:
+            info = statuses.get(name)
+            if not info or not info["alive"]:
+                if name not in _watchdog_alerted:
+                    age = info["age_sec"] if info else "N/A"
+                    notifier.send(
+                        f"🚨 <b>WATCHDOG: {name} НЕ ОТВЕЧАЕТ</b>\n"
+                        f"Последний heartbeat: <b>{age}с назад</b>\n"
+                        f"Проверьте: <code>sudo systemctl status funding-{name.replace('_', '-')}</code>"
+                    )
+                    _watchdog_alerted.add(name)
+                    logger.warning("Watchdog: %s не отвечает (age=%s)", name, age)
+            else:
+                if name in _watchdog_alerted:
+                    notifier.send(f"✅ <b>WATCHDOG: {name} снова в строю</b>")
+                    _watchdog_alerted.discard(name)
 
     # Расписание
     schedule.every(1).hours.do(hourly_scan)
@@ -172,7 +207,9 @@ def cmd_daemon(trader: PaperTrader, notifier: Notifier) -> None:
     schedule.every().day.at("08:05").do(apply_funding_job)
     schedule.every().day.at("16:05").do(apply_funding_job)
     schedule.every().day.at("06:00").do(daily_report_job)  # 09:00 МСК
+    schedule.every().monday.at("06:00").do(weekly_report_job)  # Понедельник 09:00 МСК
     schedule.every(2).minutes.do(monitor_risks_job)
+    schedule.every(5).minutes.do(watchdog_job)
 
     # Запуск scan сразу при старте
     hourly_scan()

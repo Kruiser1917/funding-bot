@@ -14,10 +14,10 @@
 
 import asyncio
 import logging
-import time
 
 from config import Config
-from src.funding import get_basis, get_funding_history
+from src.funding import get_basis, get_funding_history, get_funding_rate, get_open_interest
+from src.strategy import calc_position_size
 from src.notifier import Notifier
 from src.simulator import PaperTrader
 
@@ -104,17 +104,63 @@ class WsStrategy:
             if self.trader.db.get_position(sym):
                 return
 
-            # Проверяем лимит позиций
-            open_count = len(self.trader.db.get_open_positions())
+            # Проверяем лимит позиций — если полный, пробуем rotation
+            open_positions = self.trader.db.get_open_positions()
+            open_count = len(open_positions)
             if open_count >= Config.MAX_POSITIONS:
-                logger.info("[WS-BOT] Лимит позиций (%d). Пропуск %s", Config.MAX_POSITIONS, sym)
-                return
+                # Rotation: найти худшую позицию и заменить если кандидат сильно лучше
+                worst_sym = None
+                worst_annual = float("inf")
+                for p in open_positions:
+                    try:
+                        p_info = await asyncio.get_event_loop().run_in_executor(
+                            None, get_funding_rate, p["symbol"]
+                        )
+                        if p_info and p_info["annual_pct"] < worst_annual:
+                            worst_annual = p_info["annual_pct"]
+                            worst_sym = p["symbol"]
+                    except Exception:
+                        pass
 
-            # Проверяем баланс
-            pos_size = Config.POSITION_SIZE
+                if not worst_sym or annual_pct <= worst_annual * 1.5 or annual_pct - worst_annual < 5.0:
+                    logger.info("[WS-BOT] Лимит позиций (%d). Пропуск %s", Config.MAX_POSITIONS, sym)
+                    return
+
+                # Выполняем rotation
+                logger.info("[WS-BOT] ROTATION: %s (%.1f%%) вытесняет %s (%.1f%%)",
+                            sym, annual_pct, worst_sym, worst_annual)
+                closed = self.trader.close_position(worst_sym)
+                if closed:
+                    self.notifier.send(
+                        f"[WS-BOT] 🔄 <b>ROTATION</b>\n"
+                        f"Закрыта: <code>{worst_sym}</code> ({worst_annual:.1f}% годовых)\n"
+                        f"Причина: замена на <code>{sym}</code> ({annual_pct:.1f}% годовых)\n"
+                        f"PnL закрытой: <b>${closed.pnl:+.4f}</b>"
+                    )
+
+            # Динамический размер позиции
+            pos_size = calc_position_size(annual_pct)
             if self.trader.balance < pos_size:
                 logger.info("[WS-BOT] Недостаточно баланса: %.2f < %.2f", self.trader.balance, pos_size)
                 return
+
+            # Liquidity Filter (OI + Volume) — в фоне
+            if Config.MIN_VOLUME_24H > 0 or Config.MIN_OI > 0:
+                try:
+                    liq = await asyncio.get_event_loop().run_in_executor(
+                        None, get_open_interest, sym
+                    )
+                except Exception:
+                    liq = None
+                if liq:
+                    if liq["vol24h_usd"] < Config.MIN_VOLUME_24H:
+                        logger.info("[WS-BOT] %s: vol24h=$%.0f < $%.0f. Пропуск.",
+                                    sym, liq["vol24h_usd"], Config.MIN_VOLUME_24H)
+                        return
+                    if liq["oi_usd"] < Config.MIN_OI:
+                        logger.info("[WS-BOT] %s: OI=$%.0f < $%.0f. Пропуск.",
+                                    sym, liq["oi_usd"], Config.MIN_OI)
+                        return
 
             # Проверяем Basis (спред Spot vs Swap) — в фоне чтобы не блокировать loop
             try:

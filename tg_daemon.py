@@ -52,6 +52,7 @@ def send_help(message: Message):
         "Доступные команды:\n"
         "📈 /status — Ежедневный отчет, капитал, ROI\n"
         "💼 /positions — Список открытых сделок и их PnL\n"
+        "📊 /weekly — Еженедельный отчёт по обоим ботам\n"
         "🚨 /close_all — <b>Паник-кнопка:</b> закрыть все сделки немедленно"
     )
     bot.reply_to(message, text)
@@ -134,6 +135,27 @@ def send_positions(message: Message):
             lines.append(f"🔸 <code>{sym}</code> (залог ${margin:,.0f}) → фандинг <b>${funding:+.4f}</b>")
             
     bot.reply_to(message, "\n".join(lines))
+
+
+@bot.message_handler(commands=['weekly'])
+def send_weekly(message: Message):
+    """Еженедельный отчёт по запросу."""
+    if not _check_auth(message):
+        return
+
+    from src.notifier import Notifier
+    trader_main = PaperTrader()
+    summary_main = trader_main.summary()
+
+    ws_db_path = Config.DB_WS_PATH
+    db_ws = Database(db_path=ws_db_path)
+    trader_ws = PaperTrader()
+    trader_ws.db = db_ws
+    summary_ws = trader_ws.summary()
+
+    n = Notifier()
+    n._chat_id = str(message.chat.id)
+    n.weekly_report(summary_main, summary_ws)
 
 
 @bot.message_handler(commands=['close_all'])
