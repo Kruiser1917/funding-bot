@@ -77,10 +77,11 @@ class AutoStrategy:
         market_avg_annual = top_20["annual_pct"].mean()
         market_bullishness = (df["rate"] > 0).astype(int).mean() * 100
 
-        dynamic_enter = max(Config.ENTER_THRESHOLD / 2, min(market_avg_annual * 0.8, 35.0))
+        # Динамический порог не может опуститься НИЖЕ ENTER_THRESHOLD (только выше)
+        dynamic_enter = max(Config.ENTER_THRESHOLD, min(market_avg_annual * 0.8, 35.0))
 
         if market_bullishness > 70:
-            dynamic_pos_ratio = max(50.0, Config.MIN_POSITIVE_RATIO - 10)
+            dynamic_pos_ratio = max(Config.MIN_POSITIVE_RATIO - 5, 60.0)
         else:
             dynamic_pos_ratio = min(90.0, Config.MIN_POSITIVE_RATIO + 10)
 
