@@ -183,8 +183,9 @@ def cmd_daemon(trader: PaperTrader, notifier: Notifier) -> None:
         """Проверка здоровья всех демонов, алерт если кто-то упал."""
         from src.healthcheck import check_all
         statuses = check_all(max_age_sec=300)
-        expected = {"ws_daemon", "tg_daemon"}  # main_daemon не проверяем сам себя
-        for name in expected:
+        # daemon_name -> systemd service name
+        _service_map = {"ws_daemon": "funding-ws", "tg_daemon": "funding-tg"}
+        for name, service in _service_map.items():
             info = statuses.get(name)
             if not info or not info["alive"]:
                 if name not in _watchdog_alerted:
@@ -192,7 +193,7 @@ def cmd_daemon(trader: PaperTrader, notifier: Notifier) -> None:
                     notifier.send(
                         f"🚨 <b>WATCHDOG: {name} НЕ ОТВЕЧАЕТ</b>\n"
                         f"Последний heartbeat: <b>{age}с назад</b>\n"
-                        f"Проверьте: <code>sudo systemctl status funding-{name.replace('_', '-')}</code>"
+                        f"Проверьте: <code>sudo systemctl status {service}</code>"
                     )
                     _watchdog_alerted.add(name)
                     logger.warning("Watchdog: %s не отвечает (age=%s)", name, age)

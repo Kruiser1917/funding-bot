@@ -205,11 +205,24 @@ if __name__ == "__main__":
     logger.info(" V11 Telegram Interactive Bot запущен")
     logger.info(" Ожидание команд от chat_id=%s", ALLOWED_CHAT_ID)
     logger.info("=" * 60)
-    
+
+    import threading
     from src.healthcheck import heartbeat
+
+    def _heartbeat_loop():
+        """Фоновый поток: обновляет heartbeat каждые 60 секунд."""
+        while True:
+            try:
+                heartbeat("tg_daemon")
+            except Exception:
+                pass
+            time.sleep(60)
+
+    hb_thread = threading.Thread(target=_heartbeat_loop, daemon=True)
+    hb_thread.start()
+
     while True:
         try:
-            heartbeat("tg_daemon")
             bot.polling(none_stop=True, interval=0, timeout=20)
         except Exception as exc:
             logger.error("Ошибка Telegram Polling: %s. Переподключение...", exc)
