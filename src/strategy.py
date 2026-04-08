@@ -112,6 +112,8 @@ class AutoStrategy:
             if sym in open_symbols:
                 continue
 
+            logger.info("Scan %s: annual=%.1f%% (порог=%.1f%%)", sym, annual, dynamic_enter)
+
             if annual < dynamic_enter:
                 continue
 

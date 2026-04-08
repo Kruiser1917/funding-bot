@@ -56,6 +56,13 @@ class Config:
     # Минимальный Open Interest (USD)
     MIN_OI: float = float(os.getenv("MIN_OI", "2000000"))  # $2M
 
+    # Реальная торговля (V5 Live Trading)
+    # LIVE_TRADING=false → модуль exchange НИКОГДА не отправляет ордера на биржу,
+    # только логирует что сделал бы. Безопасный dry-run режим.
+    LIVE_TRADING: bool = os.getenv("LIVE_TRADING", "false").lower() == "true"
+    # Режим маржи для фьючерса: "cross" или "isolated"
+    TRADE_MARGIN_MODE: str = os.getenv("TRADE_MARGIN_MODE", "cross")
+
     # Базовый URL OKX REST API
     OKX_BASE_URL: str = "https://www.okx.com"
 
